@@ -20,6 +20,8 @@ from teleop.robot_control.robot_arm_ik import G1_29_ArmIK, G1_23_ArmIK, H1_2_Arm
 from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Dex1_1_Gripper_Controller
 from teleop.robot_control.robot_hand_inspire import Inspire_Controller
 from teleop.robot_control.robot_hand_brainco import Brainco_Controller
+from teleop.robot_control.mobile_control import G1_Mobilebase_Height_Controller
+from teleop.utils.instruction_map import ControlDataMapper
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 from teleop.utils.ipc import IPC_Server
@@ -81,6 +83,8 @@ if __name__ == '__main__':
     parser.add_argument('--xr-mode', type=str, choices=['hand', 'controller'], default='hand', help='Select XR device tracking source')
     parser.add_argument('--arm', type=str, choices=['G1_29', 'G1_23', 'H1_2', 'H1'], default='G1_29', help='Select arm controller')
     parser.add_argument('--ee', type=str, choices=['dex1', 'dex3', 'inspire1', 'brainco'], help='Select end effector controller')
+    parser.add_argument('--mobile', type=str, choices=['with_move', 'only_height',''], default='', help='Select mobile controller')
+    parser.add_argument('--mobile-control-device', type=str, choices=['unitree_handle', 'other'], default='unitree_handle', help='Select mobile control device')
     # mode flags
     parser.add_argument('--motion', action = 'store_true', help = 'Enable motion control mode')
     parser.add_argument('--headless', action='store_true', help='Enable headless mode (no display)')
@@ -214,6 +218,16 @@ if __name__ == '__main__':
             hand_ctrl = Brainco_Controller(left_hand_pos_array, right_hand_pos_array, dual_hand_data_lock, dual_hand_state_array, dual_hand_action_array, simulation_mode=args.sim)
         else:
             pass
+
+        # mobile
+        if args.mobile != "":
+            control_data_mapper = ControlDataMapper()
+            if args.mobile == "with_move":
+                mobile_ctrl = G1_Mobilebase_Height_Controller(args.mobile, args.mobile_control_device, simulation_mode=args.sim)
+            else:
+                mobile_ctrl = G1_Mobilebase_Height_Controller(args.mobile, args.mobile_control_device, simulation_mode=args.sim)
+        else:
+            mobile_ctrl=None
         
         # affinity mode (if you dont know what it is, then you probably don't need it)
         if args.affinity:
@@ -336,6 +350,14 @@ if __name__ == '__main__':
             logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
             arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
+            # mobile 使用的是外部其他控制手柄，需要将手柄的指令转换为移动底盘的指令
+            if args.mobile != "" and args.mobile_control_device != "unitree_handle":
+                vel_data = control_data_mapper.update(-tele_data.tele_state.left_thumbstick_value[1], -tele_data.tele_state.left_thumbstick_value[0], -tele_data.tele_state.right_thumbstick_value[0], tele_data.tele_state.right_thumbstick_value[1])
+                mobile_ctrl.g1_height_action_array_in[0] = vel_data['height']  #高度指令
+                mobile_ctrl.g1_move_action_array_in[0] = vel_data['x_vel']  #地盘线速度指令，左摇杆横向
+                mobile_ctrl.g1_move_action_array_in[1] = vel_data['yaw_vel']  #地盘角速度指令，右摇杆横向
+
+
             # record data
             if args.record:
                 RECORD_READY = recorder.is_ready()
@@ -455,6 +477,51 @@ if __name__ == '__main__':
                             "qpos": current_body_action,
                         }, 
                     }
+                    if args.mobile != "":
+                        # 读取 action 数据（从其他程序发布的控制指令）
+                        height_action = mobile_ctrl.g1_height_action_array_out
+                        # 读取 state 数据（机器人的实际状态）
+                        height_state = mobile_ctrl.g1_height_state_array_out
+                        states["height_vel"] = {
+                            "qpos": np.array(height_state[1]).tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        }
+                        states["height_distance"] = {
+                            "qpos": np.array(height_state[0]).tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        }
+                        actions["height_vel"] = {
+                            "qpos": np.array(height_action[0]).tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        }
+                        
+                        if args.mobile == "with_move":
+                            move_action = mobile_ctrl.g1_move_action_array_out
+                            move_state = mobile_ctrl.g1_move_state_array_out
+                            states["mobile_x_vel"] = {
+                                "qpos": np.array(move_state[0]).tolist(),
+                                "qvel": [],
+                                "torque": [],
+                            }
+                            states["mobile_z_vel"] = {
+                                "qpos": np.array(move_state[1]).tolist(),
+                                "qvel": [],
+                                "torque": [],
+                            }
+                            actions["mobile_x_vel"] = {
+                                "qpos": np.array(move_action[0]).tolist(),
+                                "qvel": [],
+                                "torque": [],
+                            }
+                            actions["mobile_z_vel"] = {
+                                "qpos": np.array(move_action[1]).tolist(),
+                                "qvel": [],
+                                "torque": [],
+                            }
+
                     if args.sim:
                         sim_state = sim_state_subscriber.read_data()            
                         recorder.add_item(colors=colors, depths=depths, states=states, actions=actions, sim_state=sim_state)
