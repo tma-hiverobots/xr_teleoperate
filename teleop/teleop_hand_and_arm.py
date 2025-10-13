@@ -482,45 +482,17 @@ if __name__ == '__main__':
                         height_action = mobile_ctrl.g1_height_action_array_out
                         # 读取 state 数据（机器人的实际状态）
                         height_state = mobile_ctrl.g1_height_state_array_out
-                        states["height_vel"] = {
-                            "qpos": np.array(height_state[1]).tolist(),
-                            "qvel": [],
-                            "torque": [],
-                        }
-                        states["height_distance"] = {
-                            "qpos": np.array(height_state[0]).tolist(),
-                            "qvel": [],
-                            "torque": [],
-                        }
-                        actions["height_vel"] = {
-                            "qpos": np.array(height_action[0]).tolist(),
-                            "qvel": [],
-                            "torque": [],
-                        }
+                        states["body"]["y_vel"] = np.array(height_state[1]).tolist(),
+                        states["body"]["height"] =  np.array(height_state[0]).tolist(),
+                        actions["body"]["y_vel"] =  np.array(height_action[0]).tolist(),
                         
                         if args.mobile == "with_move":
                             move_action = mobile_ctrl.g1_move_action_array_out
                             move_state = mobile_ctrl.g1_move_state_array_out
-                            states["mobile_x_vel"] = {
-                                "qpos": np.array(move_state[0]).tolist(),
-                                "qvel": [],
-                                "torque": [],
-                            }
-                            states["mobile_z_vel"] = {
-                                "qpos": np.array(move_state[1]).tolist(),
-                                "qvel": [],
-                                "torque": [],
-                            }
-                            actions["mobile_x_vel"] = {
-                                "qpos": np.array(move_action[0]).tolist(),
-                                "qvel": [],
-                                "torque": [],
-                            }
-                            actions["mobile_z_vel"] = {
-                                "qpos": np.array(move_action[1]).tolist(),
-                                "qvel": [],
-                                "torque": [],
-                            }
+                            states["body"]["x_vel"] =  np.array(move_state[0]).tolist(),
+                            states["body"]["yaw_vel"] =  np.array(move_state[1]).tolist(),
+                            actions["body"]["x_vel"] =  np.array(move_action[0]).tolist(),
+                            actions["body"]["yaw_vel"] =  np.array(move_action[1]).tolist(),
 
                     if args.sim:
                         sim_state = sim_state_subscriber.read_data()            
