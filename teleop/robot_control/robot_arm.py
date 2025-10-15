@@ -61,10 +61,11 @@ class DataBuffer:
 class G1_29_ArmController:
     def __init__(self, motion_mode = False, simulation_mode = False):
         logger_mp.info("Initialize G1_29_ArmController...")
-        self.q_target = np.zeros(14)
-        self.tauff_target = np.zeros(14)
+        self.q_target = np.zeros(16)
+        self.tauff_target = np.zeros(16)
         self.motion_mode = motion_mode
         self.simulation_mode = simulation_mode
+
         self.kp_high = 300.0
         self.kd_high = 3.0
         self.kp_low = 80.0
@@ -134,6 +135,13 @@ class G1_29_ArmController:
                     self.msg.motor_cmd[id].kp = self.kp_high
                     self.msg.motor_cmd[id].kd = self.kd_high
             self.msg.motor_cmd[id].q  = self.all_motor_q[id]
+            
+            if id.value == G1_29_JointWaistIndex.kWaistYaw.value:
+                self.q_target[-2] = self.all_motor_q[id]
+                self.tauff_target[-2] = 0
+            elif id.value == G1_29_JointWaistIndex.kWaistPitch.value:
+                self.q_target[-1] = self.all_motor_q[id]
+                self.tauff_target[-1] = 0
         logger_mp.info("Lock OK!\n")
 
         # initialize publish thread
@@ -156,11 +164,11 @@ class G1_29_ArmController:
             time.sleep(0.002)
 
     def clip_arm_q_target(self, target_q, velocity_limit):
-        current_q = self.get_current_dual_arm_q()
+        current_q = self.get_current_arm_waist_q()
         delta = target_q - current_q
         motion_scale = np.max(np.abs(delta)) / (velocity_limit * self.control_dt)
-        cliped_arm_q_target = current_q + delta / max(motion_scale, 1.0)
-        return cliped_arm_q_target
+        cliped_q_target = current_q + delta / max(motion_scale, 1.0)
+        return cliped_q_target
 
     def _ctrl_motor_state(self):
         if self.motion_mode:
@@ -170,18 +178,17 @@ class G1_29_ArmController:
             start_time = time.time()
 
             with self.ctrl_lock:
-                arm_q_target     = self.q_target
-                arm_tauff_target = self.tauff_target
-
+                q_target     = self.q_target
+                tauff_target = self.tauff_target
             if self.simulation_mode:
-                cliped_arm_q_target = arm_q_target
+                cliped_q_target = q_target
             else:
-                cliped_arm_q_target = self.clip_arm_q_target(arm_q_target, velocity_limit = self.arm_velocity_limit)
+                cliped_q_target = self.clip_arm_q_target(q_target, velocity_limit = self.arm_velocity_limit)
 
-            for idx, id in enumerate(G1_29_JointArmIndex):
-                self.msg.motor_cmd[id].q = cliped_arm_q_target[idx]
+            for idx, id in enumerate(G1_29_JointArmWaistIndex):
+                self.msg.motor_cmd[id].q = cliped_q_target[idx]
                 self.msg.motor_cmd[id].dq = 0
-                self.msg.motor_cmd[id].tau = arm_tauff_target[idx]   
+                self.msg.motor_cmd[id].tau = tauff_target[idx]   
 
             self.msg.crc = self.crc.Crc(self.msg)
             self.lowcmd_publisher.Write(self.msg)
@@ -199,9 +206,21 @@ class G1_29_ArmController:
 
     def ctrl_dual_arm(self, q_target, tauff_target):
         '''Set control target values q & tau of the left and right arm motors.'''
-        with self.ctrl_lock:
-            self.q_target = q_target
-            self.tauff_target = tauff_target
+        q_arr = np.atleast_1d(q_target)
+        if q_arr.shape[0] == 14:
+            with self.ctrl_lock:
+                self.q_target[:14] = q_arr[:14]
+                self.tauff_target[:14] = tauff_target[:14]
+        elif q_arr.shape[0] == 15:
+            with self.ctrl_lock:
+                self.q_target[:15] = q_arr[:15]
+                self.tauff_target[:14] = tauff_target[:14]
+        elif q_arr.shape[0] == 16:
+            with self.ctrl_lock:
+                self.q_target = q_arr
+                self.tauff_target[:14] = tauff_target[:14]
+        else:
+            raise ValueError(f"Invalid q_target shape: {q_arr.shape}")
 
     def get_mode_machine(self):
         '''Return current dds mode machine.'''
@@ -214,7 +233,12 @@ class G1_29_ArmController:
     def get_current_dual_arm_q(self):
         '''Return current state q of the left and right arm motors.'''
         return np.array([self.lowstate_buffer.GetData().motor_state[id].q for id in G1_29_JointArmIndex])
-    
+    def get_current_waist_q(self):
+        '''Return current state q of the waist motors.'''
+        return np.array([self.lowstate_buffer.GetData().motor_state[id].q for id in G1_29_JointWaistIndex])
+    def get_current_arm_waist_q(self):
+        '''Return current state q of the left and right arm and waist motors.'''
+        return np.array([self.lowstate_buffer.GetData().motor_state[id].q for id in G1_29_JointArmWaistIndex])
     def get_current_dual_arm_dq(self):
         '''Return current state dq of the left and right arm motors.'''
         return np.array([self.lowstate_buffer.GetData().motor_state[id].dq for id in G1_29_JointArmIndex])
@@ -225,7 +249,7 @@ class G1_29_ArmController:
         max_attempts = 100
         current_attempts = 0
         with self.ctrl_lock:
-            self.q_target = np.zeros(14)
+            self.q_target = np.zeros(16)
             # self.tauff_target = np.zeros(14)
         tolerance = 0.05  # Tolerance threshold for joint angles to determine "close to zero", can be adjusted based on your motor's precision requirements
         while current_attempts < max_attempts:
@@ -296,6 +320,31 @@ class G1_29_JointArmIndex(IntEnum):
     kRightWristRoll = 26
     kRightWristPitch = 27
     kRightWristYaw = 28
+class G1_29_JointWaistIndex(IntEnum):
+    kWaistYaw = 12
+    kWaistPitch = 14
+class G1_29_JointArmWaistIndex(IntEnum):
+        # Left arm
+    kLeftShoulderPitch = 15
+    kLeftShoulderRoll = 16
+    kLeftShoulderYaw = 17
+    kLeftElbow = 18
+    kLeftWristRoll = 19
+    kLeftWristPitch = 20
+    kLeftWristyaw = 21
+
+    # Right arm
+    kRightShoulderPitch = 22
+    kRightShoulderRoll = 23
+    kRightShoulderYaw = 24
+    kRightElbow = 25
+    kRightWristRoll = 26
+    kRightWristPitch = 27
+    kRightWristYaw = 28
+
+    # Waist
+    kWaistYaw = 12
+    kWaistPitch = 14
 
 class G1_29_JointIndex(IntEnum):
     # Left leg

@@ -32,7 +32,7 @@ class ControlDataMapper:
         # Height accumulated value (remains unchanged after release)
         self._height_value = 0.0
         
-    def update(self, x_raw, y_raw, rx_raw, ry_raw):
+    def update(self, x_raw, y_raw, rx_raw, ry_raw,rbutton_A,rbutton_B):
         """
         Update and map control parameters
         
@@ -41,7 +41,8 @@ class ControlDataMapper:
             y_raw: Longitudinal joystick raw value (-1 to 1)
             rx_raw: Right joystick horizontal raw value (-1 to 1)
             ry_raw: Right joystick vertical raw value (-1 to 1)
-            
+            rbutton_A: Right button A raw value (0 or 1)
+            rbutton_B: Right button B raw value (0 or 1)
         Returns:
             dict: Dictionary containing x_vel, y_vel, yaw_vel, height
         """
@@ -54,11 +55,11 @@ class ControlDataMapper:
         y_vel = self._filters['y_vel'].update(raw, max_accel=1.0)
         
         # Map yaw velocity 
-        raw = self._map_yaw_velocity(y_raw)
+        raw = self._map_yaw_velocity(rx_raw, -2.62, 2.62)
         yaw_vel = self._filters['yaw_vel'].update(raw, max_accel=1.0)
         
         # Update height (remains at current value after release)
-        self._update_height(ry_raw)
+        self._update_height_button(rbutton_A,rbutton_B)
         
         return {
             'x_vel': x_vel,
@@ -66,7 +67,21 @@ class ControlDataMapper:
             'yaw_vel': yaw_vel,
             'height': self._height_value
         }
-    
+    def _update_height_button(self,rbutton_A,rbutton_B):
+        """
+        Update height value
+        Height remains unchanged when joystick is released (won't drop down)
+        
+        Args:
+            rbutton_A: Right button A raw value (0 or 1)
+            rbutton_B: Right button B raw value (0 or 1)
+        """
+        if rbutton_A:
+            self._height_value = 0.2
+        elif rbutton_B:
+            self._height_value = -0.2
+        else:
+            self._height_value = 0.0
     def _update_height(self, raw_value):
         """
         Update height value
@@ -94,8 +109,8 @@ class ControlDataMapper:
     def _map_lateral_velocity(self, value):
         return self._smooth_map(value, -0.6, 0.6)
     
-    def _map_yaw_velocity(self, value):
-        return self._smooth_map(value, -1.0, 1.0)
+    def _map_yaw_velocity(self, value,min_value,max_value):
+        return self._smooth_map(value,min_value,max_value)
     
     def _smooth_map(self, value, out_min, out_max, deadzone=0.05):
         """

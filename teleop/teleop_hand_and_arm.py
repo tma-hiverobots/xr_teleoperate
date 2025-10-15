@@ -85,6 +85,7 @@ if __name__ == '__main__':
     parser.add_argument('--ee', type=str, choices=['dex1', 'dex3', 'inspire1', 'brainco'], help='Select end effector controller')
     parser.add_argument('--base-type', type=str, choices=['mobile_lift', 'lift','None'], default='None', help='Select mobile controller')
     parser.add_argument('--control-device', type=str, choices=['unitree_handle', 'other'], default='unitree_handle', help='Select mobile control device')
+    parser.add_argument('--use-waist', action = 'store_true', help = 'Enable waist control')
     # mode flags
     parser.add_argument('--motion', action = 'store_true', help = 'Enable motion control mode')
     parser.add_argument('--headless', action='store_true', help='Enable headless mode (no display)')
@@ -348,15 +349,21 @@ if __name__ == '__main__':
             sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_arm_pose, tele_data.right_arm_pose, current_lr_arm_q, current_lr_arm_dq)
             time_ik_end = time.time()
             logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
-            arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
-
             # For mobile base and elevation control
             if args.base_type != "None" and mobile_ctrl != None:
-                vel_data = control_data_mapper.update(-tele_data.tele_state.left_thumbstick_value[1], -tele_data.tele_state.left_thumbstick_value[0], -tele_data.tele_state.right_thumbstick_value[0], -tele_data.tele_state.right_thumbstick_value[1])
+                vel_data = control_data_mapper.update(-tele_data.tele_state.left_thumbstick_value[1], -tele_data.tele_state.left_thumbstick_value[0], -tele_data.tele_state.right_thumbstick_value[0], -tele_data.tele_state.right_thumbstick_value[1],
+                tele_data.tele_state.right_aButton, tele_data.tele_state.right_bButton)
                 mobile_ctrl.g1_height_action_array_in[0] = vel_data['height']  
                 if args.base_type == "mobile_lift":
                     mobile_ctrl.g1_move_action_array_in[0] = vel_data['x_vel']  
-                    mobile_ctrl.g1_move_action_array_in[1] = vel_data['y_vel']  
+                    mobile_ctrl.g1_move_action_array_in[1] = vel_data['y_vel'] 
+                if args.use_waist:
+                    waist_state = arm_ctrl.get_current_waist_q()
+                    waist_action = np.array([vel_data['yaw_vel']]).tolist()
+                    # waist_sol_tauff = np.zeros(len(waist_action))
+                    sol_q = np.concatenate([sol_q, waist_action])
+                    # sol_tauff = np.concatenate([sol_tauff, waist_sol_tauff])
+            arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
 
             # record data
@@ -413,7 +420,7 @@ if __name__ == '__main__':
                 left_arm_state  = current_lr_arm_q[:7]
                 right_arm_state = current_lr_arm_q[-7:]
                 left_arm_action = sol_q[:7]
-                right_arm_action = sol_q[-7:]
+                right_arm_action = sol_q[7:7+7]
                 if RECORD_RUNNING:
                     colors = {}
                     depths = {}
@@ -494,6 +501,9 @@ if __name__ == '__main__':
                             states["body"]["yaw_vel"] =  np.array(move_state[1]).tolist(),
                             actions["body"]["x_vel"] =  np.array(move_action[0]).tolist(),
                             actions["body"]["yaw_vel"] =  np.array(move_action[1]).tolist(),
+                        if args.use_waist:
+                            states["body"]["waist_qpos"] = np.array(waist_state).tolist(),
+                            actions["body"]["waist_qpos"] = np.array(waist_action).tolist(),
 
                     if args.sim:
                         sim_state = sim_state_subscriber.read_data()            
