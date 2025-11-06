@@ -1,27 +1,200 @@
 import numpy as np
+import threading
+import time
+class FixedHeightController:
+    """
+    Fixed Height Controller - Independent thread controls robot height to preset positions
+    """
+    
+    def __init__(self, mobile_ctrl, target_A=0.1107, target_B=0.3868):
+        """
+        Initialize fixed height controller
+        Args:
+            mobile_ctrl: Mobile controller instance
+            target_A: Target height for button A in meters
+            target_B: Target height for button B in meters
+        """
+        self.mobile_ctrl = mobile_ctrl
+        self.target_A = target_A
+        self.target_B = target_B
+        
+        self._height_target = None
+        self._height_control_active = False
 
+        self._height_control_thread = None
+        self._height_thread_running = False
+        self._height_target_lock = threading.Lock()
+    
+    def _height_control_loop(self, max_speed=1.0, min_speed=0.2, tolerance=0.001, kp=8.0):
+        """
+        Height control thread function, continuously executes height control
+        
+        Args:
+            max_speed: Maximum speed in m/s
+            min_speed: Minimum speed in m/s, applied when speed is non-zero
+            tolerance: Tolerance in meters
+            kp: Proportional gain
+        """
+        
+        while self._height_thread_running:
+            try:
+                with self._height_target_lock:
+                    target = self._height_target
+                    active = self._height_control_active
+                
+                if not active or target is None:
+                    self.mobile_ctrl.g1_height_action_array_in[0] = 0.0
+                    time.sleep(0.02)  # 20ms
+                    continue
 
+                current_height = self.mobile_ctrl.g1_height_state_array_out[0]
+                
+                height_error = target - current_height
+                
+                if abs(height_error) < tolerance:
+                    with self._height_target_lock:
+                        self._height_control_active = False
+                        self._height_target = None
+                        self._height_thread_running = False
+                    self.mobile_ctrl.g1_height_action_array_in[0] = 0.0
+                    print(f"✓ [FixedHeightController] 已到达目标高度：{current_height:+.4f} m")
+                    time.sleep(0.02)
+                    continue
+                
+                speed = kp * height_error
+                
+                speed = np.clip(speed, -max_speed, max_speed)
+                
+                if min_speed > 0.0 and abs(speed) > 0.0 and abs(speed) < min_speed:
+                    speed = np.sign(speed) * min_speed
+                
+                self.mobile_ctrl.g1_height_action_array_in[0] = speed
+                
+                time.sleep(0.02)  # 50Hz
+                
+            except Exception as e:
+                print(f"✗ [FixedHeightController] 高度控制线程错误: {e}")
+                time.sleep(0.1)
+        
+        self.mobile_ctrl.g1_height_action_array_in[0] = 0.0
+        print(">>> [FixedHeightController] Height control thread stopped")
+        
+        with self._height_target_lock:
+            self._height_control_thread = None
+
+    def update(self, lbutton_A, lbutton_B, max_speed=1.0, min_speed=0.2, tolerance=0.002, kp=5.0):
+        """
+        Update button states and set target height (Called by main thread)
+        
+        Args:
+            lbutton_A: Left A button state
+            lbutton_B: Left B button state
+            max_speed: Maximum speed in m/s
+            min_speed: Minimum speed in m/s, applied when speed is non-zero
+            tolerance: Tolerance in meters
+            kp: Proportional gain
+        """
+        if self.mobile_ctrl is None:
+            return
+        lbutton_A_pressed = lbutton_A 
+        lbutton_B_pressed = lbutton_B 
+        if lbutton_A_pressed:
+            current_height = self.mobile_ctrl.g1_height_state_array_out[0]
+            direction = "uP" if self.target_A > current_height else "DOWN" if self.target_A < current_height else "KEEP"
+            print(f">>> [A key] Set height target: {direction} from {current_height:.4f}m to {self.target_A:.4f}m")
+            if self._height_control_thread is not None and not self._height_control_thread.is_alive():
+                self._height_control_thread = None
+                self._height_thread_running = False
+            with self._height_target_lock:
+                self._height_target = self.target_A
+                self._height_control_active = True
+            
+            if not self._height_thread_running:
+                self._height_thread_running = True
+                self._height_control_thread = threading.Thread(
+                    target=self._height_control_loop,
+                    args=(max_speed, min_speed, tolerance, kp),
+                    daemon=True
+                )
+                self._height_control_thread.start()
+                
+        elif lbutton_B_pressed:
+            current_height = self.mobile_ctrl.g1_height_state_array_out[0]
+            direction = "UP" if self.target_B > current_height else "DOWN" if self.target_B < current_height else "KEEP"
+            print(f">>> [B key] Set height target: {direction} from {current_height:.4f}m to {self.target_B:.4f}m")
+            
+            if self._height_control_thread is not None and not self._height_control_thread.is_alive():
+                self._height_control_thread = None
+                self._height_thread_running = False
+            with self._height_target_lock:
+                self._height_target = self.target_B
+                self._height_control_active = True
+            
+            if not self._height_thread_running:
+                self._height_thread_running = True
+                self._height_control_thread = threading.Thread(
+                    target=self._height_control_loop,
+                    args=(max_speed, min_speed, tolerance, kp),
+                    daemon=True
+                )
+                self._height_control_thread.start()
+    
+    def stop(self):
+        """
+        Stop height control thread
+        """
+        if self._height_thread_running:
+            print(">>> [FixedHeightController] Stopping height control thread...")
+            self._height_thread_running = False
+            if self._height_control_thread is not None:
+                self._height_control_thread.join(timeout=1.0)
+                self._height_control_thread = None
+            print("✓ [FixedHeightController] Height control thread stopped")
+    
+    def is_active(self):
+        """
+        Returns:
+            bool: True if fixed height control is active or thread is running
+        """
+        return self._height_control_active or self._height_thread_running
+    
+    def set_targets(self, target_A, target_B):
+        """
+        Set target heights
+        
+        Args:
+            target_A: Target height for button A
+            target_B: Target height for button B
+        """
+        self.target_A = target_A
+        self.target_B = target_B
+        print(f"✓ [FixedHeightController] Updated target heights: A={target_A:.4f}m, B={target_B:.4f}m")
 class HandleInstruction:
-    def __init__(self,r3_controller,tv_wrapper,mobile_ctrl):
-        self.r3_controller = r3_controller
+    def __init__(self,control_device,tv_wrapper,mobile_ctrl):
+        self.control_device = control_device
         self.tv_wrapper = tv_wrapper
         self.mobile_ctrl = mobile_ctrl
     def get_instruction(self):
-        if self.r3_controller and self.mobile_ctrl is not None:
+        if self.control_device == "unitree_handle" and self.mobile_ctrl is not None:
             lx = self.mobile_ctrl.unitree_handle_state_array_out[0]
             ly = -self.mobile_ctrl.unitree_handle_state_array_out[1]
             rx = -self.mobile_ctrl.unitree_handle_state_array_out[2]
             ry = -self.mobile_ctrl.unitree_handle_state_array_out[3]
             rbutton_A = True if int(self.mobile_ctrl.unitree_handle_state_array_out[4]) == 256 else False
             rbutton_B = True if int(self.mobile_ctrl.unitree_handle_state_array_out[4]) == 512 else False
-        else:
+            lbutton_A = False
+            lbutton_B = False
+        elif self.control_device == "other" and self.tv_wrapper is not None:
             lx = -self.tv_wrapper.get_motion_state_data().tele_state.left_thumbstick_value[1]
             ly = -self.tv_wrapper.get_motion_state_data().tele_state.left_thumbstick_value[0]
             rx = -self.tv_wrapper.get_motion_state_data().tele_state.right_thumbstick_value[0]
             ry = -self.tv_wrapper.get_motion_state_data().tele_state.right_thumbstick_value[1]
             rbutton_A = self.tv_wrapper.get_motion_state_data().tele_state.right_aButton
             rbutton_B = self.tv_wrapper.get_motion_state_data().tele_state.right_bButton
-        return {'lx': lx, 'ly': ly, 'rx': rx, 'ry': ry, 'rbutton_A': rbutton_A, 'rbutton_B': rbutton_B}
+            lbutton_A = self.tv_wrapper.get_motion_state_data().tele_state.left_aButton
+            lbutton_B = self.tv_wrapper.get_motion_state_data().tele_state.left_bButton
+        return {'lx': lx, 'ly': ly, 'rx': rx, 'ry': ry, 'rbutton_A': rbutton_A, 'rbutton_B': rbutton_B, 'lbutton_A': lbutton_A, 'lbutton_B': lbutton_B}
+
 
 class LowPassFilter:
     """Low-pass filter for smoothing data"""

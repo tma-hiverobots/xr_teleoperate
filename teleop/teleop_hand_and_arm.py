@@ -20,7 +20,7 @@ from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Dex1_1_Gr
 from teleop.robot_control.robot_hand_inspire import Inspire_Controller_DFX, Inspire_Controller_FTP
 from teleop.robot_control.robot_hand_brainco import Brainco_Controller
 from teleop.robot_control.mobile_control import G1_Mobile_Lift_Controller
-from teleop.utils.instruction_map import ControlDataMapper, HandleInstruction
+from teleop.utils.instruction_map import ControlDataMapper, HandleInstruction,FixedHeightController
 
 from teleimager.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
@@ -207,6 +207,7 @@ if __name__ == '__main__':
             control_data_mapper = ControlDataMapper()
             mobile_ctrl = G1_Mobile_Lift_Controller(args.base_type, args.r3_controller, simulation_mode=args.sim)
             handle_instruction = HandleInstruction(args.r3_controller, tv_wrapper, mobile_ctrl)
+            fixed_height_controller = FixedHeightController(mobile_ctrl)
         else:
             mobile_ctrl=None
         # affinity mode (if you dont know what it is, then you probably don't need it)
@@ -339,7 +340,10 @@ if __name__ == '__main__':
                 handle_instruction_data = handle_instruction.get_instruction()
                 vel_data = control_data_mapper.update(rbutton_A=handle_instruction_data['rbutton_A'], rbutton_B=handle_instruction_data['rbutton_B'])
                 height_action = np.array([vel_data['g1_height']]).tolist()
-                mobile_ctrl.g1_height_action_array_in[0] = height_action[0]  
+                if not fixed_height_controller.is_active():
+                    mobile_ctrl.g1_height_action_array_in[0] = height_action[0]
+                if handle_instruction_data['lbutton_A'] or handle_instruction_data['lbutton_B']:
+                    fixed_height_controller.update(handle_instruction_data['lbutton_A'], handle_instruction_data['lbutton_B'])
                 if args.base_type == "mobile_lift":
                     move_state = mobile_ctrl.g1_move_state_array_out
                     handle_instruction_data = handle_instruction.get_instruction()
