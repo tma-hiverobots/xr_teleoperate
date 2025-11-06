@@ -15,7 +15,7 @@ class EpisodeWriter():
         """
         image_size: [width, height]
         """
-        logger_mp.info("==> EpisodeWriter initializing...\n")
+        logger_mp.info("==> EpisodeWriter initializing...")
         self.task_dir = task_dir
         self.text = {
             "goal": "Pick up the red cup on the table.",
@@ -34,9 +34,9 @@ class EpisodeWriter():
 
         self.rerun_log = rerun_log
         if self.rerun_log:
-            logger_mp.info("==> RerunLogger initializing...\n")
+            logger_mp.info("==> RerunLogger initializing...")
             self.rerun_logger = RerunLogger(prefix="online/", IdxRangeBoundary = 60, memory_limit = "300MB")
-            logger_mp.info("==> RerunLogger initializing ok.\n")
+            logger_mp.info("==> RerunLogger initializing ok.")
         
         self.item_id = -1
         self.episode_id = -1
@@ -44,10 +44,10 @@ class EpisodeWriter():
             episode_dirs = [episode_dir for episode_dir in os.listdir(self.task_dir) if 'episode_' in episode_dir and not episode_dir.endswith('.zip')]
             episode_last = sorted(episode_dirs)[-1] if len(episode_dirs) > 0 else None
             self.episode_id = 0 if episode_last is None else int(episode_last.split('_')[-1])
-            logger_mp.info(f"==> task_dir directory already exist, now self.episode_id is:{self.episode_id}\n")
+            logger_mp.info(f"==> task_dir directory already exist, now self.episode_id is:{self.episode_id}")
         else:
             os.makedirs(self.task_dir)
-            logger_mp.info(f"==> episode directory does not exist, now create one.\n")
+            logger_mp.info(f"==> episode directory does not exist, now create one.")
         self.data_info()
 
         self.is_available = True  # Indicates whether the class is available for new operations
@@ -58,7 +58,7 @@ class EpisodeWriter():
         self.worker_thread = Thread(target=self.process_queue)
         self.worker_thread.start()
 
-        logger_mp.info("==> EpisodeWriter initialized successfully.\n")
+        logger_mp.info("==> EpisodeWriter initialized successfully.")
     
     def is_ready(self):
         return self.is_available
@@ -87,9 +87,11 @@ class EpisodeWriter():
             }
 
  
-    def create_episode(self):
+    def create_episode(self, episode_id: int):
         """
         Create a new episode.
+        Args:
+            episode_id (int, optional): The starting item ID for the episode. Defaults to None
         Returns:
             bool: True if the episode is successfully created, False otherwise.
         Note:
@@ -101,7 +103,7 @@ class EpisodeWriter():
 
         # Reset episode-related data and create necessary directories
         self.item_id = -1
-        self.episode_id = self.episode_id + 1
+        self.episode_id = episode_id
         
         self.episode_dir = os.path.join(self.task_dir, f"episode_{str(self.episode_id).zfill(4)}")
         self.color_dir = os.path.join(self.episode_dir, 'colors')

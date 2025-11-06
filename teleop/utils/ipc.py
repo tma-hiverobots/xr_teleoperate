@@ -23,6 +23,7 @@ logger_mp = logging_mp.get_logger(__name__, level=logging_mp.INFO)
     {
         "reqid": unique id,
         "cmd": "CMD_RECORD_TOGGLE"
+        "episode_id": episode file name id
     }
 
 # Server → Client (Reply)
@@ -166,7 +167,16 @@ class IPC_Server:
                 return {"repid": reqid, "status": "error", "msg": f"cmd not supported: {cmd}"}
                     
             # supported cmd path
-            self.on_press(self.cmd_map[cmd])
+            if cmd == "CMD_RECORD_TOGGLE":
+                # pass episode_id if provided
+                es_id = msg.get("episode_id", None)
+                if es_id is not None:
+                    self.on_press(self.cmd_map[cmd], episode_id=es_id)
+                else:
+                    return {"repid": reqid, "status": "error", "msg": f"don't provide item_id for CMD_RECORD_TOGGLE"}
+            else:
+                self.on_press(self.cmd_map[cmd])
+
             return {"repid": reqid, "status": "ok", "msg": "ok"}
 
         except Exception as e:
@@ -276,7 +286,7 @@ class IPC_Client:
     # ---------------------------
     # Public API
     # ---------------------------
-    def send_data(self, cmd: str) -> dict:
+    def send_data(self, cmd: str, episode_id: str | None = None) -> dict:
         """Send command to server and wait reply"""
         reqid = self._make_reqid()
         if not self.is_online():
@@ -284,6 +294,10 @@ class IPC_Client:
             return {"repid": reqid, "status": "error", "msg": "server offline (no heartbeat)"}
         
         msg = {"reqid": reqid, "cmd": cmd}
+        if cmd == "CMD_RECORD_TOGGLE" and episode_id is not None:
+            print("IPC_Client send_data episode_id:", episode_id)
+            msg["episode_id"] = episode_id
+
         try:
             self.req_socket.send_json(msg)
             # wait up to 1s for reply
@@ -335,9 +349,11 @@ class IPC_Client:
 if __name__ == "__main__":
     from sshkeyboard import listen_keyboard, stop_listening
     client = None
+    es_id = 47
+
 
     def on_press(key: str):
-        global client
+        global client, es_id
         if client is None:
             logger_mp.warning("⚠️ Client not initialized, ignoring key press")
             return
@@ -349,7 +365,7 @@ if __name__ == "__main__":
 
         elif key == "s":
             logger_mp.info("⏺️ Sending record toggle command...")
-            rep = client.send_data("CMD_RECORD_TOGGLE")
+            rep = client.send_data("CMD_RECORD_TOGGLE", episode_id=es_id)
             logger_mp.info("Reply: %s", rep)
             
 

@@ -2,6 +2,7 @@ import time
 import argparse
 from multiprocessing import Value, Array, Lock
 import threading
+import numpy as np
 import logging_mp
 logging_mp.basic_config(level=logging_mp.INFO)
 logger_mp = logging_mp.get_logger(__name__)
@@ -41,6 +42,7 @@ STOP           = False  # Enable to begin system exit procedure
 READY          = False  # Ready to (1) enter START state, (2) enter RECORD_RUNNING state
 RECORD_RUNNING = False  # True if [Recording]
 RECORD_TOGGLE  = False  # Toggle recording state
+EPISODE_ID     = None   # Episode ID (int) for IPC communication
 #  -------        ---------                -----------                -----------            ---------
 #   state          [Ready]      ==>        [Recording]     ==>         [AutoSave]     -->     [Ready]
 #  -------        ---------      |         -----------      |         -----------      |     ---------
@@ -53,14 +55,16 @@ RECORD_TOGGLE  = False  # Toggle recording state
 #  ==> manual: when READY is True, set RECORD_TOGGLE=True to transition.
 #  --> auto  : Auto-transition after saving data.
 
-def on_press(key):
-    global STOP, START, RECORD_TOGGLE
+def on_press(key, episode_id=None):
+    global STOP, START, RECORD_TOGGLE, EPISODE_ID
     if key == 'r':
         START = True
     elif key == 'q':
         START = False
         STOP = True
     elif key == 's' and START == True:
+        if episode_id is not None:
+            EPISODE_ID = episode_id
         RECORD_TOGGLE = True
     else:
         logger_mp.warning(f"[on_press] {key} was pressed, but no action is defined for this key.")
@@ -83,6 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--arm', type=str, choices=['G1_29', 'G1_23', 'H1_2', 'H1'], default='G1_29', help='Select arm controller')
     parser.add_argument('--ee', type=str, choices=['dex1', 'dex3', 'inspire_ftp', 'inspire_dfx', 'brainco'], help='Select end effector controller')
     
+    # mobile base, elevation and waist control
     parser.add_argument('--base-type', type=str, choices=['mobile_lift', 'lift','legs'], default='legs', help='Select lower body type')
     parser.add_argument('--r3-controller', action = 'store_true', help = 'Enable R3 controller, otherwise enable XR controller')
     parser.add_argument('--use-waist', action = 'store_true', help = 'Enable waist control')
@@ -97,7 +102,7 @@ if __name__ == '__main__':
     parser.add_argument('--affinity', action = 'store_true', help = 'Enable high priority and set CPU affinity mode')
     # record mode and task info
     parser.add_argument('--record', action = 'store_true', help = 'Enable data recording mode')
-    parser.add_argument('--task-dir', type = str, default = './utils/data/', help = 'path to save data')
+    parser.add_argument('--task-dir', type = str, default = '../../data/', help = 'path to save data')
     parser.add_argument('--task-name', type = str, default = 'pick cube', help = 'task file name for recording')
     parser.add_argument('--task-goal', type = str, default = 'pick up cube.', help = 'task goal for recording at json file')
     parser.add_argument('--task-desc', type = str, default = 'task description', help = 'task description for recording at json file')
@@ -269,7 +274,7 @@ if __name__ == '__main__':
             if args.record and RECORD_TOGGLE:
                 RECORD_TOGGLE = False
                 if not RECORD_RUNNING:
-                    if recorder.create_episode():
+                    if recorder.create_episode(episode_id=EPISODE_ID):
                         RECORD_RUNNING = True
                     else:
                         logger_mp.error("Failed to create episode. Recording not started.")
