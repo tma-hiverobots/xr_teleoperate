@@ -89,7 +89,6 @@ if __name__ == '__main__':
     
     # mobile base, elevation and waist control
     parser.add_argument('--base-type', type=str, choices=['mobile_lift', 'lift','legs'], default='legs', help='Select lower body type')
-    parser.add_argument('--r3-controller', action = 'store_true', help = 'Enable R3 controller, otherwise enable XR controller')
     parser.add_argument('--use-waist', action = 'store_true', help = 'Enable waist control')
 
     # mode flags
@@ -205,8 +204,9 @@ if __name__ == '__main__':
         # For mobile base and elevation control
         if args.base_type != "legs":
             control_data_mapper = ControlDataMapper()
-            mobile_ctrl = G1_Mobile_Lift_Controller(args.base_type, args.r3_controller, simulation_mode=args.sim)
-            handle_instruction = HandleInstruction(args.r3_controller, tv_wrapper, mobile_ctrl)
+            # args.xr_mode == "hand" use unitree R3-controller, otherwise use XR controller
+            mobile_ctrl = G1_Mobile_Lift_Controller(args.base_type, args.xr_mode == "hand", simulation_mode=args.sim)
+            handle_instruction = HandleInstruction(args.xr_mode == "hand", tv_wrapper, mobile_ctrl)
             fixed_height_controller = FixedHeightController(mobile_ctrl)
         else:
             mobile_ctrl=None
