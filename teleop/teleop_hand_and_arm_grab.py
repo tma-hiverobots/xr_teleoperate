@@ -2,7 +2,7 @@ import ctypes
 import os
 
 # 把你 conda 环境里的新版 libstdc++ 提前塞进进程，全局可见
-ctypes.CDLL("/opt/miniconda3/envs/xr_tele/lib/libstdc++.so.6", mode=ctypes.RTLD_GLOBAL)
+# ctypes.CDLL("/opt/miniconda3/envs/xr_tele/lib/libstdc++.so.6", mode=ctypes.RTLD_GLOBAL)
 
 
 import numpy as np
@@ -232,7 +232,7 @@ if __name__ == '__main__':
                 dex3_left_msg.motor_cmd[jid].mode = ris._mode_to_uint8()
                 dex3_left_msg.motor_cmd[jid].kp = 1.5
                 dex3_left_msg.motor_cmd[jid].kd = 0.2
-         
+
         elif args.ee == "fake_dex":
             left_hand_pos_array = Array('d', 75, lock = True)      # [input]
             right_hand_pos_array = Array('d', 75, lock = True)     # [input]
@@ -240,6 +240,19 @@ if __name__ == '__main__':
             dual_hand_state_array = Array('d', 14, lock = False)   # [output] current left, right hand state(14) data.
             dual_hand_action_array = Array('d', 14, lock = False)  # [output] current left, right hand action(14) data.
             hand_ctrl = None
+
+            dex3_left_pub = ChannelPublisher("rt/dex3/left/cmd", HandCmd_)
+            dex3_left_pub.Init()
+            dex3_left_msg = unitree_hg_msg_dds__HandCmd_()
+
+            # 简单版：直接给 mode/kp/kd 默认值（或者用上面“从 state 抄”的版）
+            for jid in Dex3_1_Left_JointIndex:
+                dex3_left_msg.motor_cmd[jid].mode = 10
+                dex3_left_msg.motor_cmd[jid].kp   = 1.5
+                dex3_left_msg.motor_cmd[jid].kd   = 0.2
+                dex3_left_msg.motor_cmd[jid].tau  = 0.0
+                dex3_left_msg.motor_cmd[jid].dq   = 0.0
+                
         else:
             pass
         
@@ -372,14 +385,24 @@ if __name__ == '__main__':
             if args.ee == "fake_dex":
                 fake_q14 = np.zeros(14,dtype=np.float64)
 
+                # if left_trigger:
+                #     fake_q14[:7] = grab_pose_left
                 if left_trigger:
                     fake_q14[:7] = grab_pose_left
-                if right_trigger:
-                    fake_q14[-7:] = grab_pose_right
+                else:
+                    fake_q14[:7] = open_pose
+
+                # 右手：假手，不跟扳机互动，固定张开
+                fake_q14[-7:] = open_pose
 
                 with dual_hand_data_lock:
                     dual_hand_action_array[:] = fake_q14
                     dual_hand_state_array[:] = fake_q14
+
+                left7 = fake_q14[:7]
+                for i, jid in enumerate(Dex3_1_Left_JointIndex):
+                    dex3_left_msg.motor_cmd[jid].q = left7[i]
+                dex3_left_pub.Write(dex3_left_msg)
                 
             elif args.ee == "dex3":
                 q14 = np.array(dual_hand_action_array[:],dtype=np.float64)
@@ -414,42 +437,47 @@ if __name__ == '__main__':
             else:
                 pass
             
-            
-
 
             # record data
             if args.record:
                 RECORD_READY = recorder.is_ready()
                 # dex hand or gripper
-                if args.ee == "dex3" and args.xr_mode == "hand":
-                    with dual_hand_data_lock:
-                        left_ee_state = dual_hand_state_array[:7]
-                        right_ee_state = dual_hand_state_array[-7:]
-                        left_hand_action = dual_hand_action_array[:7]
-                        right_hand_action = dual_hand_action_array[-7:]
-                        current_body_state = []
-                        current_body_action = []
-                if args.ee == "dex3" and args.xr_mode == "controller":
-                    with dual_hand_data_lock:
-                        left_ee_state = dual_hand_state_array[:7]
-                        right_ee_state = dual_hand_state_array[-7:]
-                        left_hand_action = dual_hand_action_array[:7]
-                        right_hand_action = dual_hand_action_array[-7:]
-                        current_body_state = []
-                        current_body_action = []
-                elif (args.ee == "inspire1" or args.ee == "brainco") and args.xr_mode == "hand":
-                    with dual_hand_data_lock:
-                        left_ee_state = dual_hand_state_array[:6]
-                        right_ee_state = dual_hand_state_array[-6:]
-                        left_hand_action = dual_hand_action_array[:6]
-                        right_hand_action = dual_hand_action_array[-6:]
-                        current_body_state = []
-                        current_body_action = []
-                else:
-                    left_ee_state = []
-                    right_ee_state = []
-                    left_hand_action = []
-                    right_hand_action = []
+                # if args.ee == "dex3" and args.xr_mode == "hand":
+                #     with dual_hand_data_lock:
+                #         left_ee_state = dual_hand_state_array[:7]
+                #         right_ee_state = dual_hand_state_array[-7:]
+                #         left_hand_action = dual_hand_action_array[:7]
+                #         right_hand_action = dual_hand_action_array[-7:]
+                #         current_body_state = []
+                #         current_body_action = []
+                # if args.ee == "dex3" and args.xr_mode == "controller":
+                #     with dual_hand_data_lock:
+                #         left_ee_state = dual_hand_state_array[:7]
+                #         right_ee_state = dual_hand_state_array[-7:]
+                #         left_hand_action = dual_hand_action_array[:7]
+                #         right_hand_action = dual_hand_action_array[-7:]
+                #         current_body_state = []
+                #         current_body_action = []
+                # elif (args.ee == "inspire1" or args.ee == "brainco") and args.xr_mode == "hand":
+                #     with dual_hand_data_lock:
+                #         left_ee_state = dual_hand_state_array[:6]
+                #         right_ee_state = dual_hand_state_array[-6:]
+                #         left_hand_action = dual_hand_action_array[:6]
+                #         right_hand_action = dual_hand_action_array[-6:]
+                #         current_body_state = []
+                #         current_body_action = []
+                # else:
+                #     left_ee_state = []
+                #     right_ee_state = []
+                #     left_hand_action = []
+                #     right_hand_action = []
+                #     current_body_state = []
+                #     current_body_action = []
+                with dual_hand_data_lock:
+                    left_ee_state = dual_hand_state_array[:7]
+                    right_ee_state = dual_hand_state_array[-7:]
+                    left_hand_action = dual_hand_action_array[:7]
+                    right_hand_action = dual_hand_action_array[-7:]
                     current_body_state = []
                     current_body_action = []
                 # head image
