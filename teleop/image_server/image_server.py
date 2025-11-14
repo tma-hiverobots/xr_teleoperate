@@ -317,5 +317,5 @@ if __name__ == "__main__":
         'wrist_camera_id_numbers': [2, 4],
     }
 
-    server = ImageServer(config, Unit_Test=False)
+    server = ImageServer(config, port=5555, Unit_Test=False)
     server.send_process()

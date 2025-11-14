@@ -1,3 +1,7 @@
+import ctypes
+import os
+
+ctypes.CDLL("/opt/miniconda3/envs/xr_tele/lib/libstdc++.so.6", mode=ctypes.RTLD_GLOBAL)
 import numpy as np
 import time
 import argparse
@@ -24,6 +28,7 @@ from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 from teleop.utils.ipc import IPC_Server
 from sshkeyboard import listen_keyboard, stop_listening
+
 
 # for simulation
 from unitree_sdk2py.core.channel import ChannelPublisher
@@ -167,7 +172,8 @@ if __name__ == '__main__':
 
         # television: obtain hand pose data from the XR device and transmit the robot's head camera image to the XR device.
         tv_wrapper = TeleVuerWrapper(binocular=BINOCULAR, use_hand_tracking=args.xr_mode == "hand", img_shape=tv_img_shape, img_shm_name=tv_img_shm.name, 
-                                    return_state_data=True, return_hand_rot_data = False)
+                                     return_state_data=True, return_hand_rot_data = False)
+        
 
         # arm
         if args.arm == "G1_29":
@@ -291,13 +297,23 @@ if __name__ == '__main__':
                     recorder.save_episode()
                     if args.sim:
                         publish_reset_category(1, reset_pose_publisher)
+
             # get input data
             tele_data = tv_wrapper.get_motion_state_data()
+
+            # print(f"Left Arm Pose:{tele_data.left_arm_pose}")
+            # print(f"Left Hand Pose: (first 5): {tele_data.left_hand_pos.flatten()[0:5]}")
+
             if (args.ee == "dex3" or args.ee == "inspire1" or args.ee == "brainco") and args.xr_mode == "hand":
                 with left_hand_pos_array.get_lock():
                     left_hand_pos_array[:] = tele_data.left_hand_pos.flatten()
                 with right_hand_pos_array.get_lock():
                     right_hand_pos_array[:] = tele_data.right_hand_pos.flatten()
+            # elif args.ee == "dex3"  and args.xr_mode == "controller":
+            #     with left_hand_pos_array.get_lock():
+            #         left_hand_pos_array[:] = tele_data.left_hand_pos.flatten()
+            #     with right_hand_pos_array.get_lock():
+            #         right_hand_pos_array[:] = tele_data.right_hand_pos.flatten()
             elif args.ee == "dex1" and args.xr_mode == "controller":
                 with left_gripper_value.get_lock():
                     left_gripper_value.value = tele_data.left_trigger_value
@@ -336,11 +352,25 @@ if __name__ == '__main__':
             logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
             arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
+            # if tele_data.tele_state.right_trigger_state:
+                #logger_mp.debug("trigger_ok")
+            # grab_R_pose = np.array([-1.0,-1.0,-1.7,1.55,1.75,1.55,1.75])
+            # grab_L_pose = np.array([1.0,1.0,1.7,-1.55,-1.75,-1.55,-1.75])
+            # hand_ctrl.ctrl_dual_hand(grab_L_pose,grab_R_pose)
+
             # record data
             if args.record:
                 RECORD_READY = recorder.is_ready()
                 # dex hand or gripper
                 if args.ee == "dex3" and args.xr_mode == "hand":
+                    with dual_hand_data_lock:
+                        left_ee_state = dual_hand_state_array[:7]
+                        right_ee_state = dual_hand_state_array[-7:]
+                        left_hand_action = dual_hand_action_array[:7]
+                        right_hand_action = dual_hand_action_array[-7:]
+                        current_body_state = []
+                        current_body_action = []
+                elif args.ee == "dex3" and args.xr_mode == "controller":
                     with dual_hand_data_lock:
                         left_ee_state = dual_hand_state_array[:7]
                         right_ee_state = dual_hand_state_array[-7:]

@@ -33,7 +33,7 @@ kTopicDex3RightState = "rt/dex3/right/state"
 
 class Dex3_1_Controller:
     def __init__(self, left_hand_array_in, right_hand_array_in, dual_hand_data_lock = None, dual_hand_state_array_out = None,
-                       dual_hand_action_array_out = None, fps = 100.0, Unit_Test = False, simulation_mode = False):
+                       dual_hand_action_array_out = None,fps = 100.0, Unit_Test = False,simulation_mode = False, right_hand_override = None, left_hand_override = None):
         """
         [note] A *_array type parameter requires using a multiprocessing Array, because it needs to be passed to the internal child process
 
@@ -62,6 +62,7 @@ class Dex3_1_Controller:
             self.hand_retargeting = HandRetargeting(HandType.UNITREE_DEX3)
         else:
             self.hand_retargeting = HandRetargeting(HandType.UNITREE_DEX3_Unit_Test)
+            #self.hand_retargeting = HandRetargeting(HandType.UNITREE_DEX3)
 
         if self.simulation_mode:
             ChannelFactoryInitialize(1)
@@ -96,7 +97,7 @@ class Dex3_1_Controller:
         logger_mp.info("[Dex3_1_Controller] Subscribe dds ok.")
 
         hand_control_process = Process(target=self.control_process, args=(left_hand_array_in, right_hand_array_in,  self.left_hand_state_array, self.right_hand_state_array,
-                                                                          dual_hand_data_lock, dual_hand_state_array_out, dual_hand_action_array_out))
+                                                                          dual_hand_data_lock, dual_hand_state_array_out, dual_hand_action_array_out, right_hand_override, left_hand_override))
         hand_control_process.daemon = True
         hand_control_process.start()
 
@@ -128,19 +129,22 @@ class Dex3_1_Controller:
             self.motor_mode |= (self.timeout & 0x01) << 7
             return self.motor_mode
 
-    def ctrl_dual_hand(self, left_q_target, right_q_target):
+    def ctrl_dual_hand(self, left_q_target=None, right_q_target=None):
         """set current left, right hand motor state target q"""
-        for idx, id in enumerate(Dex3_1_Left_JointIndex):
-            self.left_msg.motor_cmd[id].q = left_q_target[idx]
-        for idx, id in enumerate(Dex3_1_Right_JointIndex):
-            self.right_msg.motor_cmd[id].q = right_q_target[idx]
+        if left_q_target is not None:
+            for idx, id in enumerate(Dex3_1_Left_JointIndex):
+                self.left_msg.motor_cmd[id].q = left_q_target[idx]
+            self.LeftHandCmb_publisher.Write(self.left_msg)
+        
+        if right_q_target is not None:
+            for idx, id in enumerate(Dex3_1_Right_JointIndex):
+                self.right_msg.motor_cmd[id].q = right_q_target[idx]
+            self.RightHandCmb_publisher.Write(self.right_msg)
 
-        self.LeftHandCmb_publisher.Write(self.left_msg)
-        self.RightHandCmb_publisher.Write(self.right_msg)
-        # logger_mp.debug("hand ctrl publish ok.")
+        logger_mp.debug("hand ctrl publish ok.")
     
     def control_process(self, left_hand_array_in, right_hand_array_in, left_hand_state_array, right_hand_state_array,
-                              dual_hand_data_lock = None, dual_hand_state_array_out = None, dual_hand_action_array_out = None):
+                              dual_hand_data_lock = None, dual_hand_state_array_out = None, dual_hand_action_array_out = None, right_hand_override = None, left_hand_override = None):
         self.running = True
 
         left_q_target  = np.full(Dex3_Num_Motors, 0)
@@ -197,12 +201,58 @@ class Dex3_1_Controller:
 
                 # get dual hand action
                 action_data = np.concatenate((left_q_target, right_q_target))    
+                # if dual_hand_state_array_out and dual_hand_action_array_out:
+                #     with dual_hand_data_lock:
+                #         dual_hand_state_array_out[:] = state_data
+                #         dual_hand_action_array_out[:] = action_data
+
+                # override = False
+                # if right_hand_override is not None:
+                #    override = (right_hand_override[0]>0.5)
+
+                # if override: 
+                #    self.ctrl_dual_hand(left_q_target, None)
+                # else:
+                #    self.ctrl_dual_hand(left_q_target, right_q_target)
+
+                # right_over = False
+                # left_over = False
+
+                # if right_hand_override is not None:
+                #     right_over = (right_hand_override[0]>0.5)
+                
+                # if  left_hand_override is not None:
+                #     left_over = (left_hand_override[0]>0.5)
+
+                right_over = (right_hand_override is not None and right_hand_override[0]>0.5)
+                left_over = (left_hand_override is not None and left_hand_override[0]>0.5)
+                
                 if dual_hand_state_array_out and dual_hand_action_array_out:
                     with dual_hand_data_lock:
                         dual_hand_state_array_out[:] = state_data
-                        dual_hand_action_array_out[:] = action_data
+                        
+                        if not left_over and not right_over:
+                            dual_hand_action_array_out[:] = action_data
+                        else:
+                            cur = dual_hand_action_array_out[:]
+                            
+                            if not left_over:
+                                cur[:7] = left_q_target
+                            
+                            if not right_over:
+                                cur[-7:] = right_q_target
+                            
+                            dual_hand_action_array_out[:] = cur
+                
+                if right_over and left_over:
+                    pass
+                elif right_over and not left_over:
+                    self.ctrl_dual_hand(left_q_target, None)
+                elif not right_over and left_over:
+                    self.ctrl_dual_hand(None, right_q_target) 
+                else:
+                    self.ctrl_dual_hand(left_q_target, right_q_target)
 
-                self.ctrl_dual_hand(left_q_target, right_q_target)
                 current_time = time.time()
                 time_elapsed = current_time - start_time
                 sleep_time = max(0, (1 / self.fps) - time_elapsed)
