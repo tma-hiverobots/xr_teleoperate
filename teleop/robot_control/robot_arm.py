@@ -2,6 +2,7 @@ import numpy as np
 import threading
 import time
 from enum import IntEnum
+import sys
 
 from unitree_sdk2py.core.channel import ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize # dds
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import ( LowCmd_  as hg_LowCmd, LowState_ as hg_LowState) # idl for g1, h1_2
@@ -84,7 +85,7 @@ class G1_29_ArmController:
         if self.simulation_mode:
             ChannelFactoryInitialize(1)
         else:
-            ChannelFactoryInitialize(0)
+            ChannelFactoryInitialize(0,"enx9c69d31ecd9b")
 
         if self.motion_mode:
             self.lowcmd_publisher = ChannelPublisher(kTopicLowCommand_Motion, hg_LowCmd)

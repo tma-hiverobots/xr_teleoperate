@@ -141,7 +141,8 @@ class ImageServer:
         logger_mp.info(config)
         self.fps = config.get('fps', 30)
         self.head_camera_type = config.get('head_camera_type', 'opencv')
-        self.head_image_shape = config.get('head_camera_image_shape', [480, 640])      # (height, width)
+        #self.head_image_shape = config.get('head_camera_image_shape', [480, 640])      # (height, width)
+        self.head_image_shape = config.get('head_camera_image_shape', [480, 640]) 
         self.head_camera_id_numbers = config.get('head_camera_id_numbers', [0])
 
         self.wrist_camera_type = config.get('wrist_camera_type', None)
@@ -309,12 +310,12 @@ class ImageServer:
 if __name__ == "__main__":
     config = {
         'fps': 30,
-        'head_camera_type': 'opencv',
-        'head_camera_image_shape': [480, 1280],  # Head camera resolution
-        'head_camera_id_numbers': [0],
-        'wrist_camera_type': 'opencv',
-        'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
-        'wrist_camera_id_numbers': [2, 4],
+        'head_camera_type': 'realsense',
+        'head_camera_image_shape': [480,640],  # Head camera resolution
+        'head_camera_id_numbers': ["233622072924"], #233622072924
+        #'wrist_camera_type': 'opencv',
+        #'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
+        #'wrist_camera_id_numbers': [2, 4],
     }
 
     server = ImageServer(config, Unit_Test=False)
