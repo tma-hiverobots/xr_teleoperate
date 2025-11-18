@@ -11,7 +11,7 @@ import logging_mp
 logger_mp = logging_mp.get_logger(__name__)
 parent2_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(parent2_dir)
-
+from scipy.spatial.transform import Rotation as R
 from teleop.utils.weighted_moving_filter import WeightedMovingFilter
 
 class G1_29_ArmIK:
@@ -268,7 +268,27 @@ class G1_29_ArmIK:
 
             # return sol_q, sol_tauff
             return current_lr_arm_motor_q, np.zeros(self.reduced_robot.model.nv)
+    def matrix_to_xyzrpy(T):
+        """
+        将 4x4 齐次变换矩阵转换为位置(x, y, z) + 欧拉角(r, p, y)（弧度）
+        """
+        assert T.shape == (4, 4)
+        xyz = T[:3, 3]
+        rpy = R.from_matrix(T[:3, :3]).as_euler('xyz', degrees=False)
+        return np.concatenate([xyz, rpy])
+    def solve_fk(self, q_full):
+        assert q_full.shape == (self.reduced_robot.model.nq,)
+
+        pin.forwardKinematics(self.reduced_robot.model, self.reduced_robot.data, q_full)
+        pin.updateFramePlacements(self.reduced_robot.model, self.reduced_robot.data)
+
+        ee_pose_l = self.reduced_robot.data.oMf[self.reduced_robot.model.getFrameId("L_ee")].homogeneous
+        ee_pose_r = self.reduced_robot.data.oMf[self.reduced_robot.model.getFrameId("R_ee")].homogeneous
         
+        ee_xyzrpy_l = self.matrix_to_xyzrpy(ee_pose_l)
+        ee_xyzrpy_r = self.matrix_to_xyzrpy(ee_pose_r)
+        
+        return ee_xyzrpy_l, ee_xyzrpy_r
 class G1_23_ArmIK:
     def __init__(self, Unit_Test = False, Visualization = False):
         np.set_printoptions(precision=5, suppress=True, linewidth=200)

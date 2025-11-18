@@ -328,10 +328,11 @@ if __name__ == '__main__':
             # get current robot state data.
             current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
             current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
-
+            left_arm_pose_state, right_arm_pose_state = arm_ik.solve_fk(current_lr_arm_q)
             # solve ik using motor data and wrist pose, then use ik results to control arms.
             time_ik_start = time.time()
             sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_wrist_pose, tele_data.right_wrist_pose, current_lr_arm_q, current_lr_arm_dq)
+            left_arm_pose_action, right_arm_pose_action = arm_ik.solve_fk(sol_q)
             time_ik_end = time.time()
             logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
             # For mobile base and elevation control
@@ -478,7 +479,17 @@ if __name__ == '__main__':
                             "qpos":   right_arm_state.tolist(),       
                             "qvel":   [],                          
                             "torque": [],                         
-                        },                        
+                        },       
+                        "left_arm_pose": {
+                            "qpos": left_arm_pose_state.tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        },
+                        "right_arm_pose": {
+                            "qpos": right_arm_pose_state.tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        },                  
                         "left_ee": {                                                                    
                             "qpos":   left_ee_state,           
                             "qvel":   [],                           
@@ -492,6 +503,7 @@ if __name__ == '__main__':
                         "body": {
                             "qpos": current_body_state,
                         }, 
+
                     }
                     actions = {
                         "left_arm": {                                   
@@ -503,7 +515,17 @@ if __name__ == '__main__':
                             "qpos":   right_arm_action.tolist(),       
                             "qvel":   [],       
                             "torque": [],       
-                        },                         
+                        },     
+                        "left_arm_pose": {
+                            "qpos": left_arm_pose_action.tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        },
+                        "right_arm_pose": {
+                            "qpos": right_arm_pose_action.tolist(),
+                            "qvel": [],
+                            "torque": [],
+                        },                     
                         "left_ee": {                                   
                             "qpos":   left_hand_action,       
                             "qvel":   [],       
@@ -517,6 +539,7 @@ if __name__ == '__main__':
                         "body": {
                             "qpos": current_body_action,
                         }, 
+
                         
                     }
                     if mobile_ctrl != None:

@@ -94,6 +94,5 @@ class GravityFeedforward:
         tau_ff = G_full[self.idxs]
         # print(f"q[0]:{q[0]}")
         if q[0]>1.5:
-            print(f"q[0]:{q[0]}")
             tau_ff = tau_ff-5
         return tau_ff
